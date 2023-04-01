@@ -1,10 +1,8 @@
-import { SimplifiedDatabaseType } from '../api/enums.js.js';
+import { SimplifiedDatabaseType, type FieldSchema, type ModelSchema, type FullTextSearchIndex } from '../api/shared.server';
 import type { Connection } from '@planetscale/database';
 import type {
   FriedaVars,
   Model,
-  ParsedColumnDef,
-  ParsedModelDef,
   RawTableColumnInfo,
   RawTableInfo,
   RepoDefinition,
@@ -37,7 +35,7 @@ export const createModels = async (
   schemaSpinner.start('Fetching schema...');
   const schema = await getSchema(connection);
   schemaSpinner.start('Parsing schema...')
-  const result = schema.map((t) => createModel(t));
+  const result = schema.map((t) => getModelSchema(t));
   const modelsDirFullPath = join(
     process.cwd(),
     friedaVars.generatedModelsDirectory
@@ -97,11 +95,11 @@ export const createModels = async (
 
 };
 
-const createModel = (table: RawTableInfo): ParsedModelDef => {
-  const columns = table.columns.map((c) => getColumnDef(c, table.name));
+const getModelSchema = (table: RawTableInfo): ModelSchema<Model> => {
+  const fields = table.columns.map((c) => getFieldSchema(c, table.name));
   return {
     name: table.name,
-    columns,
+    fields,
     fullTextSearchIndexes: getTableFullTextSearchIndexes(table)
   };
 };
@@ -195,12 +193,12 @@ const getSimplifiedDatabaseType = (
   );
 };
 
-const getColumnDef = (
+const getFieldSchema = (
   column: RawTableColumnInfo,
   tableName: string
-): ParsedColumnDef => {
+): FieldSchema<Model> => {
   const databaseType = getSimplifiedDatabaseType(column, tableName);
-  const def: ParsedColumnDef = {
+  const def: FieldSchema<Model> = {
     name: column.Field,
     databaseType,
     javascriptType: getJavascriptType(column, databaseType, tableName),
@@ -209,7 +207,6 @@ const getColumnDef = (
     nullable: /yes/i.test(column.Null),
     isCreatedAt: false,
     isUpdatedAt: false,
-    maxStringLength: null,
     isPrimaryKeyGenerated: false,
     isDefaultGenerated: /DEFAULT_GENERATED/i.test(column.Extra),
     isGeneratedAlways:
@@ -229,18 +226,12 @@ const getColumnDef = (
       }
     }
   }
-  if (databaseType === SimplifiedDatabaseType.String) {
-    const result = column.Type.match(/\(\s*([\d]+)\s*\)/);
-    if (result) {
-      def.maxStringLength = parseInt(result[1]);
-    }
-  }
   return def;
 };
 
 const getTableFullTextSearchIndexes = (
   table: RawTableInfo
-): TableSearchIndexDefinition[] => {
+): FullTextSearchIndex[] => {
   const indexes: TableSearchIndexDefinition[] = [];
   table.indexes.forEach((rawIndex) => {
     if (!/FULLTEXT/i.test(rawIndex.Index_type)) {
